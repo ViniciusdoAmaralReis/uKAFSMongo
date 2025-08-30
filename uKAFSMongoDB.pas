@@ -8,8 +8,8 @@ uses
   FireDAC.Phys.MongoDBWrapper;
 
   function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
-  function EditarDados(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject;
-  function BuscarDados(const _banco, _colecao: String; const _filtro: TJSONObject): TJSONObject;
+  function EditarDados(const _banco, _colecao: String; const _filtros, _atualizacoes: TJSONObject): TJSONObject;
+  function BuscarDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
 
 implementation
 
@@ -144,10 +144,10 @@ begin
     FreeAndNil(_conexao);
   end;
 end;
-function EditarDados(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject;
+function EditarDados(const _banco, _colecao: String; const _filtros, _atualizacoes: TJSONObject): TJSONObject;
 begin
   // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _filtro, _atualizacao);
+  var validacao := ValidarOperacao(_banco, _colecao, _filtros, _atualizacoes);
   try
     if not validacao.GetValue<Boolean>('sucesso') then
       Exit(validacao.Clone as TJSONObject);
@@ -164,9 +164,9 @@ begin
       var _editar := _mongo[_banco][_colecao].Update();
       with _editar.Match() do
       begin
-        for var I := 0 to _filtro.Count - 1 do
+        for var I := 0 to _filtros.Count - 1 do
         begin
-          var _par := _filtro.Pairs[I];
+          var _par := _filtros.Pairs[I];
           var _campo := _par.JsonString.Value;
           var _valor := JSONValueToVariant(_par.JsonValue);
 
@@ -181,9 +181,9 @@ begin
       // Executa a edição
       with _editar.Modify().&Set() do
       begin
-        for var I := 0 to _atualizacao.Count - 1 do
+        for var I := 0 to _atualizacoes.Count - 1 do
         begin
-          var _par := _atualizacao.Pairs[I];
+          var _par := _atualizacoes.Pairs[I];
           var _campo := _par.JsonString.Value;
           var _valor := JSONValueToVariant(_par.JsonValue);
 
@@ -208,10 +208,10 @@ begin
     FreeAndNil(_conexao);
   end;
 end;
-function BuscarDados(const _banco, _colecao: String; const _filtro: TJSONObject): TJSONObject;
+function BuscarDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
 begin
   // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _filtro);
+  var validacao := ValidarOperacao(_banco, _colecao, _filtros);
   try
     if not validacao.GetValue<Boolean>('sucesso') then
       Exit(validacao.Clone as TJSONObject);
@@ -227,9 +227,9 @@ begin
       var _buscar := _mongo[_banco][_colecao].Find();
       with _buscar.Match() do
       begin
-        for var I := 0 to _filtro.Count - 1 do
+        for var I := 0 to _filtros.Count - 1 do
         begin
-          var _par := _filtro.Pairs[I];
+          var _par := _filtros.Pairs[I];
           var _campo := _par.JsonString.Value;
           var _valor := JSONValueToVariant(_par.JsonValue);
           Add(_campo, _valor);
