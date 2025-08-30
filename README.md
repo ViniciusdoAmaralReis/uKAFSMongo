@@ -4,7 +4,7 @@ Biblioteca Delphi/FireMonkey de operações CRUD com MongoDB Atlas através de i
 
 ## ⚠️ Dependências externas
 
-Esta unit utiliza a seguinte unit externa que deve ser adicionada ao projeto:
+Esta biblioteca utiliza a seguinte unit externa que deve ser adicionada ao projeto:
 
 - 🧩 [uKAFSConexaoMongoDBAtlas](https://github.com/ViniciusdoAmaralReis/uKAFSConexaoMongoDBAtlas)
 
