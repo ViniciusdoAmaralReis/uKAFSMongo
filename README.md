@@ -1,42 +1,41 @@
 # 🧩 uKAFSMongoDB
 
-Componente Delphi/FireMonkey para operações CRUD com MongoDB Atlas através de interface JSON simplificada.
+Biblioteca Delphi/FireMonkey de operações CRUD com MongoDB Atlas através de interface JSON simplificada.
 
 ## ⚠️ Dependências externas
 
-Este componente utiliza a seguinte unit externa que deve ser adicionada ao projeto:
+Esta unit utiliza a seguinte unit externa que deve ser adicionada ao projeto:
 
 - 🧩 [uKAFSConexaoMongoDBAtlas](https://github.com/ViniciusdoAmaralReis/uKAFSConexaoMongoDBAtlas)
 
-## 💡 Instanciação básica
-
+## 💡 Inserir dados
 ```pascal
-// Inserir documento
-var dados := TJSONObject.Create;
-dados.AddPair('nome', TJSONString.Create('João Silva'));
-dados.AddPair('email', TJSONString.Create('joao@email.com'));
-dados.AddPair('idade', TJSONNumber.Create(30));
+var _dados := TJSONObject.Create;
+with _dados do
+begin
+  AddPair('nome', TJSONString.Create('João Silva'));
+  AddPair('email', TJSONString.Create('joao@email.com'));
+  AddPair('idade', TJSONNumber.Create(30));
+end;
 
-var resultado := InserirDados('meubanco', 'usuarios', dados);
+var resultado := InserirDados('meu_banco', 'minha_coleção', _dados);
 ```
-
+## 💡 Editar dados
 ```pascal
-// Buscar documentos
-var filtro := TJSONObject.Create;
-filtro.AddPair('idade', TJSONNumber.Create(30));
+var _filtros := TJSONObject.Create;
+_filtros.AddPair('email', TJSONString.Create('joao@email.com'));
 
-var resultado := BuscarDados('meubanco', 'usuarios', filtro);
+var _atualizacoes := TJSONObject.Create;
+_atualizacoes.AddPair('idade', TJSONNumber.Create(31));
+
+var _resultado := EditarDados('meu_banco', 'minha_coleção', _filtros, _atualizacoes);
 ```
-
+## 💡 Buscar dados
 ```pascal
-// Editar documento
-var filtro := TJSONObject.Create;
-filtro.AddPair('email', TJSONString.Create('joao@email.com'));
+var _filtros := TJSONObject.Create;
+_filtros.AddPair('idade', TJSONNumber.Create(30));
 
-var atualizacao := TJSONObject.Create;
-atualizacao.AddPair('idade', TJSONNumber.Create(31));
-
-var resultado := EditarDados('meubanco', 'usuarios', filtro, atualizacao);
+var resultado := BuscarDados('meu_banco', 'minha_coleção', _filtros);
 ```
 
 ## 🏛️ Status de compatibilidade
