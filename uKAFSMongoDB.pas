@@ -4,80 +4,111 @@ interface
 
 uses
   System.Classes, System.Generics.Collections, System.JSON, System.SysUtils,
+  System.Variants,
   FireDAC.Phys.MongoDBWrapper;
 
-type
-  TResultado = record
-    Ok: Boolean;
-    Erro: string;
-
-    class function Sucesso: TResultado; static;
-    class function Falha(const _erro: String): TResultado; static;
-  end;
-
-  function ValidarOperacao(const _banco, _colecao: String; const _campos1, _valores1, _campos2, _valores2: array of String): TResultado;
-
-  function InserirDados(const _banco, _colecao: String; const _campos, _valores: array of String): TResultado;
-  function EditarDados(const _banco, _colecao: String; const _camposfiltro, _valoresfiltro, _camposatualizar, _valoresatualizar: array of String): TResultado;
-  function BuscarDados(const _banco, _colecao: String; const _campos, _valores: array of String): TJSONArray;
+  function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
+  function EditarDados(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject;
+  function BuscarDados(const _banco, _colecao: String; const _filtro: TJSONObject): TJSONObject;
 
 implementation
 
 uses
   uKAFSConexaoMongoDBAtlas;
 
-class function TResultado.Sucesso: TResultado;
+function CriarRespostaSucesso: TJSONObject; overload;
 begin
+  Result := TJSONObject.Create;
+  Result.AddPair('sucesso', TJSONBool.Create(True));
+end;
+function CriarRespostaSucesso(const _resultados: TJSONArray; const _count: Integer): TJSONObject; overload;
+begin
+  Result := TJSONObject.Create;
   with Result do
   begin
-    Ok := True;
-    Erro := '';
+    AddPair('sucesso', TJSONBool.Create(True));
+    AddPair('quantidade', TJSONNumber.Create(_count));
+    AddPair('resultados', _resultados);
   end;
 end;
-class function TResultado.Falha(const _erro: String): TResultado;
+function CriarRespostaErro(const _mensagem: String): TJSONObject;
 begin
+  Result := TJSONObject.Create;
   with Result do
   begin
-    Ok := False;
-    Erro := _erro;
+    AddPair('sucesso', TJSONBool.Create(False));
+    AddPair('erro', TJSONString.Create(_mensagem));
   end;
 end;
 
-function ValidarOperacao(const _banco, _colecao: String; const _campos1, _valores1, _campos2, _valores2: array of String): TResultado;
+function ValidarOperacao(const _banco, _colecao: String; const _json: TJSONObject): TJSONObject; overload;
 begin
   // Validação de banco e coleção
   if Trim(_banco) = '' then
-    Exit(TResultado.Falha('Nome do banco não pode ser vazio'));
+    Exit(CriarRespostaErro('Nome do banco não pode ser vazio'));
 
   if Trim(_colecao) = '' then
-    Exit(TResultado.Falha('Nome da coleção não pode ser vazio'));
+    Exit(CriarRespostaErro('Nome da coleção não pode ser vazio'));
 
-  // Validação do primeiro array (obrigatório)
-  if Length(_campos1) <> Length(_valores1) then
-    Exit(TResultado.Falha('Quantidade de campos e valores não corresponde'));
+  // Validação do JSON
+  if not Assigned(_json) then
+    Exit(CriarRespostaErro('JSON não pode ser nulo'));
 
-  if Length(_campos1) = 0 then
-    Exit(TResultado.Falha('Nenhum campo foi informado'));
+  if _json.Count = 0 then
+    Exit(CriarRespostaErro('Nenhum campo foi informado'));
 
-  // Validação do segundo array (opcional - apenas se não estiver vazio)
-  if (Length(_campos2) > 0) or (Length(_valores2) > 0) then
-  begin
-    if Length(_campos2) <> Length(_valores2) then
-      Exit(TResultado.Falha('Quantidade de campos e valores não corresponde'));
+  Result := CriarRespostaSucesso;
+end;
+function ValidarOperacao(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject; overload;
+begin
+  // Validação de banco e coleção
+  if Trim(_banco) = '' then
+    Exit(CriarRespostaErro('Nome do banco não pode ser vazio'));
 
-    if Length(_campos2) = 0 then
-      Exit(TResultado.Falha('Nenhum campo foi informado'));
-  end;
+  if Trim(_colecao) = '' then
+    Exit(CriarRespostaErro('Nome da coleção não pode ser vazio'));
 
-  Result := TResultado.Sucesso;
+  // Validação do filtro
+  if not Assigned(_filtro) then
+    Exit(CriarRespostaErro('Filtro não pode ser nulo'));
+
+  if _filtro.Count = 0 then
+    Exit(CriarRespostaErro('Nenhum critério de filtro foi informado'));
+
+  // Validação da atualização
+  if not Assigned(_atualizacao) then
+    Exit(CriarRespostaErro('Atualização não pode ser nula'));
+
+  if _atualizacao.Count = 0 then
+    Exit(CriarRespostaErro('Nenhum campo para atualização foi informado'));
+
+  Result := CriarRespostaSucesso;
 end;
 
-function InserirDados(const _banco, _colecao: String; const _campos, _valores: array of String): TResultado;
+function JSONValueToVariant(_valor: TJSONValue): Variant;
+begin
+  if _valor is TJSONNumber then
+    Result := (_valor as TJSONNumber).AsDouble
+  else if _valor is TJSONBool then
+    Result := (_valor as TJSONBool).AsBoolean
+  else if _valor is TJSONNull then
+    Result := Null
+  else if _valor is TJSONString then
+    Result := _valor.Value
+  else
+    Result := _valor.Value; // Fallback para string
+end;
+
+function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
 begin
   // Validação
-  Result := ValidarOperacao(_banco, _colecao, _campos, _valores, [], []);
-  if not Result.Ok then
-    Exit;
+  var validacao := ValidarOperacao(_banco, _colecao, _dados);
+  try
+    if not validacao.GetValue<Boolean>('sucesso') then
+      Exit(validacao.Clone as TJSONObject);
+  finally
+    FreeAndNil(validacao);
+  end;
 
   // Cria uma conexao
   var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
@@ -85,127 +116,148 @@ begin
   try
     try
       // Executa a inserção
-      with _mongo[_banco][_colecao].Insert().Values() do
+      var _inserir := _mongo[_banco][_colecao].Insert();
+      with _inserir.Values() do
       begin
-        for var I := Low(_campos) to High(_campos) do
+        for var I := 0 to _dados.Count - 1 do
         begin
-          // Validação de campo vazio
-          if Trim(_campos[I]) = '' then
-            Exit(TResultado.Falha('Nome do campo não pode ser vazio'));
+          var _par := _dados.Pairs[I];
+          var _campo := _par.JsonString.Value;
+          var _valor := JSONValueToVariant(_par.JsonValue);
 
-          Add(_campos[I], _valores[I]);
+          if Trim(_campo) = '' then
+            Exit(CriarRespostaErro('Nome do campo não pode ser vazio'));
+
+          Add(_campo, _valor);
         end;
 
         &End.Exec;
       end;
 
-      // Retorno de sucesso
-      Result := TResultado.Sucesso;
+      Result := CriarRespostaSucesso;
 
     except
       on E: Exception do
-        // Retorno de erro com mensagem da exceção
-        Result := TResultado.Falha('Erro ao inserir dados: ' + E.Message);
+        Result := CriarRespostaErro(E.Message);
     end;
   finally
     FreeAndNil(_conexao);
   end;
 end;
-function EditarDados(const _banco, _colecao: String; const _camposfiltro, _valoresfiltro, _camposatualizar, _valoresatualizar: array of String): TResultado;
+function EditarDados(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject;
 begin
   // Validação
-  Result := ValidarOperacao(_banco, _colecao, _camposfiltro, _valoresfiltro, _camposatualizar, _valoresatualizar);
-  if not Result.Ok then
-    Exit;
+  var validacao := ValidarOperacao(_banco, _colecao, _filtro, _atualizacao);
+  try
+    if not validacao.GetValue<Boolean>('sucesso') then
+      Exit(validacao.Clone as TJSONObject);
+  finally
+    FreeAndNil(validacao);
+  end;
 
   // Cria uma conexao
   var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
   var _mongo := _conexao.MongoConnection;
   try
     try
-      // Cria o comando de atualização
-      var _comando := _mongo[_banco][_colecao].Update();
-
-      // Adiciona os critérios de filtro (Match)
-      with _comando.Match() do
+      // Executa a busca
+      var _editar := _mongo[_banco][_colecao].Update();
+      with _editar.Match() do
       begin
-        for var I := Low(_camposfiltro) to High(_camposfiltro) do
+        for var I := 0 to _filtro.Count - 1 do
         begin
-          // Validação de campo de filtro vazio
-          if Trim(_camposfiltro[I]) = '' then
-            Exit(TResultado.Falha('Nome do campo de filtro não pode ser vazio'));
+          var _par := _filtro.Pairs[I];
+          var _campo := _par.JsonString.Value;
+          var _valor := JSONValueToVariant(_par.JsonValue);
 
-          Add(_camposfiltro[I], _valoresfiltro[I]);
+          if Trim(_campo) = '' then
+            Exit(CriarRespostaErro('Nome do campo de filtro não pode ser vazio'));
+
+          Add(_campo, _valor);
         end;
         &End;
       end;
 
-      // Adiciona os campos para atualização (Modify/Set)
-      with _comando.Modify().&Set() do
+      // Executa a edição
+      with _editar.Modify().&Set() do
       begin
-        for var I := Low(_camposatualizar) to High(_camposatualizar) do
+        for var I := 0 to _atualizacao.Count - 1 do
         begin
-          // Validação de campo de atualização vazio
-          if Trim(_camposatualizar[I]) = '' then
-            Exit(TResultado.Falha('Nome do campo de atualização não pode ser vazio'));
+          var _par := _atualizacao.Pairs[I];
+          var _campo := _par.JsonString.Value;
+          var _valor := JSONValueToVariant(_par.JsonValue);
 
-          Field(_camposatualizar[I], _valoresatualizar[I]);
+          if Trim(_campo) = '' then
+            Exit(CriarRespostaErro('Nome do campo de atualização não pode ser vazio'));
+
+          Field(_campo, _valor);
         end;
         &End;
       end;
 
-      // Executa o comando
-      _comando.Exec;
+      // Executa ação
+      _editar.Exec;
 
-      // Retorno de sucesso
-      Result := TResultado.Sucesso;
+      Result := CriarRespostaSucesso;
 
     except
       on E: Exception do
-        // Retorno de erro com mensagem da exceção
-        Result := TResultado.Falha('Erro ao editar dados: ' + E.Message);
+        Result := CriarRespostaErro(E.Message);
     end;
   finally
     FreeAndNil(_conexao);
   end;
 end;
-function BuscarDados(const _banco, _colecao: String; const _campos, _valores: array of String): TJSONArray;
+function BuscarDados(const _banco, _colecao: String; const _filtro: TJSONObject): TJSONObject;
 begin
   // Validação
-  var _validacao := ValidarOperacao(_banco, _colecao, _campos, _valores, [], []);
-  if not _validacao.Ok then
-    raise Exception.Create(_validacao.Erro);
+  var validacao := ValidarOperacao(_banco, _colecao, _filtro);
+  try
+    if not validacao.GetValue<Boolean>('sucesso') then
+      Exit(validacao.Clone as TJSONObject);
+  finally
+    FreeAndNil(validacao);
+  end;
 
   var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
   var _mongo := _conexao.MongoConnection;
-  Result := TJSONArray.Create;
   try
     try
-      //cria o comando de atualização
-      var _comando := _mongo[_banco][_colecao].Find();
-
-      with _comando.Match() do
+      // Adiciona os critérios de filtro
+      var _buscar := _mongo[_banco][_colecao].Find();
+      with _buscar.Match() do
       begin
-        for var I := Low(_campos) to High(_campos) do
-          Add(_campos[I], _valores[I]);
-
+        for var I := 0 to _filtro.Count - 1 do
+        begin
+          var _par := _filtro.Pairs[I];
+          var _campo := _par.JsonString.Value;
+          var _valor := JSONValueToVariant(_par.JsonValue);
+          Add(_campo, _valor);
+        end;
         &End;
       end;
 
       // Processa os resultados
-      var _cursor: IMongoCursor; // Necessário especificar
-      var _doc: TJSONObject;
+      var _cursor: IMongoCursor;
+      var _resultadosArray := TJSONArray.Create;
+      var count := 0;
 
-      _cursor := _comando;
+      _cursor := _buscar;
       while _cursor.Next do
       begin
-        _doc := TJSONObject.ParseJSONValue(_cursor.Doc.AsJSON) as TJSONObject;
+        var _doc := TJSONObject.ParseJSONValue(_cursor.Doc.AsJSON) as TJSONObject;
         if Assigned(_doc) then
-          Result.AddElement(_doc);
+        begin
+          _resultadosArray.AddElement(_doc);
+          Inc(count);
+        end;
       end;
+
+      Result := CriarRespostaSucesso(_resultadosArray, count);
+
     except
-      FreeAndNil(Result);
-      raise;
+      on E: Exception do
+        Result := CriarRespostaErro(E.Message);
     end;
   finally
     FreeAndNil(_conexao);
