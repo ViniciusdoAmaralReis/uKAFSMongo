@@ -8,34 +8,169 @@ Esta unit utiliza a seguinte unit externa que deve ser adicionada ao projeto:
 
 - 🧩 [uKAFSConexaoMongoDBAtlas](https://github.com/ViniciusdoAmaralReis/uKAFSConexaoMongoDBAtlas)
 
-## 💡 Inserir dados
+## 💡 Chamada - Inserir dados
+```pascal
+function InserirDados(const _banco, _colecao: String;
+  const _dados: TJSONObject): TJSONObject;
+```
+
+- Exemplo de resposta com sucesso:
+```json
+{"sucesso": true}
+```
+
+- Exemplo de resposta com erro:
+```json
+{"sucesso": false, "erro": "Mensagem do erro aqui"}
+```
+
+- Exemplo de chamada:
 ```pascal
 var _dados := TJSONObject.Create;
-with _dados do
-begin
-  AddPair('nome', TJSONString.Create('João Silva'));
-  AddPair('email', TJSONString.Create('joao@email.com'));
-  AddPair('idade', TJSONNumber.Create(30));
+var _resultado := TJSONObject.Create;
+try
+  // Preparar dados para inserção
+  with _dados do
+  begin
+    AddPair('nome', TJSONString.Create('João'));
+    AddPair('email', TJSONString.Create('joao@email.com'));
+    AddPair('nivel', TJSONNumber.Create(1));
+  end;
+
+  // Executar inserção
+  _resultado := InserirDados('meu_banco', 'minha_coleção', _dados);
+
+  // Verificar resultado
+  if not _resultado.GetValue<Boolean>('sucesso') then
+    raise Exception.Create(_resultado.GetValue<string>('erro'));
+
+  ShowMessage('Usuário inserido com sucesso!');
+finally
+  FreeAndNil(_resultado);
+  FreeAndNil(_dados);
 end;
-
-var resultado := InserirDados('meu_banco', 'minha_coleção', _dados);
 ```
-## 💡 Editar dados
+
+## 💡 Chamada - Editar dados
+```pascal
+function EditarDados(const _banco, _colecao: String;
+  const _filtros, _atualizacoes: TJSONObject): TJSONObject;
+```
+
+- Exemplo de resposta com sucesso:
+```json
+{"sucesso": true}
+```
+
+- Exemplo de resposta com erro:
+```json
+{"sucesso": false, "erro": "Mensagem do erro aqui"}
+```
+
+- Exemplo de chamada:
 ```pascal
 var _filtros := TJSONObject.Create;
-_filtros.AddPair('email', TJSONString.Create('joao@email.com'));
-
 var _atualizacoes := TJSONObject.Create;
-_atualizacoes.AddPair('idade', TJSONNumber.Create(31));
+var _resultado := TJSONObject.Create;
+try
+  // Preparar filtros para edição
+  with _filtros do
+  begin
+    AddPair('email', TJSONString.Create('joao@email.com'));
+  end;
 
-var _resultado := EditarDados('meu_banco', 'minha_coleção', _filtros, _atualizacoes);
+  // Preparar dados para atualização
+  with _atualizacoes do
+  begin
+    AddPair('nivel', TJSONNumber.Create(2));
+    AddPair('ultima_atualizacao', TJSONString.Create(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now)));
+  end;
+
+  // Executar edição
+  _resultado := EditarDados('meu_banco', 'minha_coleção', _filtros, _atualizacoes);
+
+  // Verificar resultado
+  if not _resultado.GetValue<Boolean>('sucesso') then
+    raise Exception.Create(_resultado.GetValue<string>('erro'));
+
+  ShowMessage('Usuário atualizado com sucesso!');
+finally
+  FreeAndNil(_resultado);
+  FreeAndNil(_atualizacoes);
+  FreeAndNil(_filtros);
+end;
 ```
-## 💡 Buscar dados
+
+## 💡 Chamada - Buscar dados
+```pascal
+function BuscarDados(const _banco, _colecao: String;
+  const _filtros: TJSONObject): TJSONObject;
+```
+
+- Exemplo de resposta com sucesso e com resultados:
+```json
+{
+  "sucesso": true,
+  "quantidade": 2,
+  "resultados": [
+    {
+      "_id": "65a1b2c3d4e5f67890123456",
+      "nome": "João",
+      "email": "joao@email.com",
+      "nivel": 1
+    },
+    {
+      "_id": "65a1b2c3d4e5f67890123457",
+      "nome": "Maria",
+      "email": "maria@email.com",
+      "nivel": 2
+    }
+  ]
+}
+```
+
+- Exemplo de resposta com sucesso e sem resultado:
+```json
+{
+  "sucesso": true,
+  "quantidade": 0,
+  "resultados": []
+}
+```
+
+- Exemplo de resposta com erro:
+```json
+{"sucesso": false, "erro": "Mensagem do erro aqui"}
+```
+
+- Exemplo de chamada:
 ```pascal
 var _filtros := TJSONObject.Create;
-_filtros.AddPair('idade', TJSONNumber.Create(30));
+var _resultado := TJSONObject.Create;
+try
+  // Preparar filtro para busca
+  _filtros := TJSONObject.Create;
+  with _filtros do
+  begin
+    AddPair('email', TJSONString.Create('joao@email.com'));
+  end;
 
-var resultado := BuscarDados('meu_banco', 'minha_coleção', _filtros);
+  // Executar busca
+  _resultado := BuscarDados('meu_banco', 'minha_coleção', _filtros);
+
+  // Verificar resultado
+  if not _resultado.GetValue<Boolean>('sucesso') then
+    raise Exception.Create(_resultado.GetValue<string>('erro'));
+
+  // Processar resultados
+  var _quantidade := _resultado.GetValue<Integer>('quantidade');
+  var _usuarios := _resultado.GetValue<TJSONArray>('resultados');
+
+  ShowMessage(Format('%d usuário(s) encontrado(s)', [_quantidade]));
+finally
+  FreeAndNil(_resultado);
+  FreeAndNil(_filtros);
+end;
 ```
 
 ## 🏛️ Status de compatibilidade
