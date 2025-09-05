@@ -10,6 +10,7 @@ uses
   function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
   function EditarDados(const _banco, _colecao: String; const _filtros, _atualizacoes: TJSONObject): TJSONObject;
   function BuscarDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
+  function ExcluirDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
 
 implementation
 
@@ -254,6 +255,56 @@ begin
       end;
 
       Result := CriarRespostaSucesso(_resultadosArray, count);
+
+    except
+      on E: Exception do
+        Result := CriarRespostaErro(E.Message);
+    end;
+  finally
+    FreeAndNil(_conexao);
+  end;
+end;
+function ExcluirDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
+begin
+  // Validação
+  var validacao := ValidarOperacao(_banco, _colecao, _filtros);
+  try
+    if not validacao.GetValue<Boolean>('sucesso') then
+      Exit(validacao.Clone as TJSONObject);
+  finally
+    FreeAndNil(validacao);
+  end;
+
+  // Cria uma conexao
+  var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+  var _mongo := _conexao.MongoConnection;
+  try
+    try
+      // Executa a exclusão
+      var _excluir := _mongo[_banco][_colecao].Remove();
+
+      // Adiciona os critérios de filtro
+      var _match := _excluir.Match;
+      try
+        for var I := 0 to _filtros.Count - 1 do
+        begin
+          var _par := _filtros.Pairs[I];
+          var _campo := _par.JsonString.Value;
+          var _valor := JSONValueToVariant(_par.JsonValue);
+
+          if Trim(_campo) = '' then
+            Exit(CriarRespostaErro('Nome do campo de filtro não pode ser vazio'));
+
+          _match.Add(_campo, _valor);
+        end;
+      finally
+        _match.&End;
+      end;
+
+      // Executa a ação
+      _excluir.Exec;
+
+      Result := CriarRespostaSucesso;
 
     except
       on E: Exception do
