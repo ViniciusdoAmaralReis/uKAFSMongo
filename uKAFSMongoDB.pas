@@ -18,7 +18,7 @@ var
 implementation
 
 uses
-  uKAFSConexaoMongoDBAtlas;
+  uKAFSConexaoMongo;
 
 function Fila: TCriticalSection;
 begin
@@ -61,7 +61,7 @@ end;
 procedure InserirDados(const _resfriamento: Integer; const _base, _colecao: String; const _dados: TJSONArray);
   procedure Executar(const _base, _colecao: String; const _dados: TJSONArray);
   begin
-    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _conexao := TKAFSConexaoMongo.Create(nil);
     var _mongo := _conexao.MongoConnection;
     try
       // Varre array
@@ -106,7 +106,7 @@ end;
 procedure EditarDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String; const _dados: TJSONArray);
   procedure Executar(const _base, _colecao, _filtros: String; const _dados: TJSONArray);
   begin
-    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _conexao := TKAFSConexaoMongo.Create(nil);
     var _mongo := _conexao.MongoConnection;
     // Monta o documento de atualização
     var _setDoc := TJSONObject.Create;
@@ -167,7 +167,7 @@ function BuscarDados(const _resfriamento: Integer; const _base, _colecao, _filtr
   begin
     Result := TJSONArray.Create;
 
-    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _conexao := TKAFSConexaoMongo.Create(nil);
     var _mongo := _conexao.MongoConnection;
     try
       // Cria a consulta
@@ -215,7 +215,7 @@ end;
 procedure ExcluirDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String);
   procedure Executar(const _base, _colecao, _filtros: String);
   begin
-    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _conexao := TKAFSConexaoMongo.Create(nil);
     var _mongo := _conexao.MongoConnection;
     try
       // Obtém o seletor de remoção já vinculado à coleção
