@@ -3,316 +3,251 @@ unit uKAFSMongoDB;
 interface
 
 uses
-  System.Classes, System.Generics.Collections, System.JSON, System.SysUtils,
+  System.Generics.Collections, System.JSON, System.SyncObjs, System.SysUtils,
   System.Variants,
   FireDAC.Phys.MongoDBWrapper;
 
-  function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
-  function EditarDados(const _banco, _colecao: String; const _filtros, _atualizacoes: TJSONObject): TJSONObject;
-  function BuscarDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
-  function ExcluirDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
+  procedure InserirDados(const _resfriamento: Integer; const _base, _colecao: String; const _dados: TJSONArray);
+  procedure EditarDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String; const _dados: TJSONArray);
+  function BuscarDados(const _resfriamento: Integer; const _base, _colecao, _filtros, _projecoes: String): TJSONArray;
+  procedure ExcluirDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String);
+
+var
+  _fila: TCriticalSection = nil;
 
 implementation
 
 uses
   uKAFSConexaoMongoDBAtlas;
 
-function CriarRespostaSucesso: TJSONObject; overload;
+function Fila: TCriticalSection;
 begin
-  Result := TJSONObject.Create;
-  Result.AddPair('sucesso', TJSONBool.Create(True));
-end;
-function CriarRespostaSucesso(const _resultados: TJSONArray; const _count: Integer): TJSONObject; overload;
-begin
-  Result := TJSONObject.Create;
-  with Result do
-  begin
-    AddPair('sucesso', TJSONBool.Create(True));
-    AddPair('quantidade', TJSONNumber.Create(_count));
-    AddPair('resultados', _resultados);
-  end;
-end;
-function CriarRespostaErro(const _mensagem: String): TJSONObject;
-begin
-  Result := TJSONObject.Create;
-  with Result do
-  begin
-    AddPair('sucesso', TJSONBool.Create(False));
-    AddPair('erro', TJSONString.Create(_mensagem));
-  end;
+  if not Assigned(_fila) then
+    _fila := TCriticalSection.Create;
+  Result := _fila;
 end;
 
-function ValidarOperacao(const _banco, _colecao: String; const _json: TJSONObject): TJSONObject; overload;
-begin
-  // Validação de banco e coleção
-  if Trim(_banco) = '' then
-    Exit(CriarRespostaErro('Nome do banco não pode ser vazio'));
-
-  if Trim(_colecao) = '' then
-    Exit(CriarRespostaErro('Nome da coleção não pode ser vazio'));
-
-  // Validação do JSON
-  if not Assigned(_json) then
-    Exit(CriarRespostaErro('JSON não pode ser nulo'));
-
-  if _json.Count = 0 then
-    Exit(CriarRespostaErro('Nenhum campo foi informado'));
-
-  Result := CriarRespostaSucesso;
-end;
-function ValidarOperacao(const _banco, _colecao: String; const _filtro, _atualizacao: TJSONObject): TJSONObject; overload;
-begin
-  // Validação de banco e coleção
-  if Trim(_banco) = '' then
-    Exit(CriarRespostaErro('Nome do banco não pode ser vazio'));
-
-  if Trim(_colecao) = '' then
-    Exit(CriarRespostaErro('Nome da coleção não pode ser vazio'));
-
-  // Validação do filtro
-  if not Assigned(_filtro) then
-    Exit(CriarRespostaErro('Filtro não pode ser nulo'));
-
-  if _filtro.Count = 0 then
-    Exit(CriarRespostaErro('Nenhum critério de filtro foi informado'));
-
-  // Validação da atualização
-  if not Assigned(_atualizacao) then
-    Exit(CriarRespostaErro('Atualização não pode ser nula'));
-
-  if _atualizacao.Count = 0 then
-    Exit(CriarRespostaErro('Nenhum campo para atualização foi informado'));
-
-  Result := CriarRespostaSucesso;
-end;
-
-function JSONValueToVariant(_valor: TJSONValue): Variant;
+function JSONValueParaVariant(const _valor: TJSONValue): Variant;
 begin
   if _valor is TJSONNumber then
-    Result := (_valor as TJSONNumber).AsDouble
+  begin
+    var _int64: Int64;
+    var _integer: Integer;
+    var _double: Double;
+    var _numero := TJSONNumber(_valor);
+
+    if TryStrToInt64(_numero.Value, _int64) then
+    begin
+      if (_int64 >= Low(Integer)) and (_int64 <= High(Integer)) then
+        Result := Integer(_int64)
+      else
+        Result := _int64;
+    end
+    else if TryStrToFloat(_numero.Value, _double, TFormatSettings.Invariant) then
+      Result := _double
+    else
+      Result := _numero.Value;
+  end
   else if _valor is TJSONBool then
-    Result := (_valor as TJSONBool).AsBoolean
+    Result := TJSONBool(_valor).AsBoolean
+  else if _valor is TJSONString then
+    Result := TJSONString(_valor).Value
   else if _valor is TJSONNull then
     Result := Null
-  else if _valor is TJSONString then
-    Result := _valor.Value
   else
-    Result := _valor.Value; // Fallback para string
+    Result := _valor.ToJSON;
 end;
 
-function InserirDados(const _banco, _colecao: String; const _dados: TJSONObject): TJSONObject;
-begin
-  // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _dados);
-  try
-    if not validacao.GetValue<Boolean>('sucesso') then
-      Exit(validacao.Clone as TJSONObject);
-  finally
-    FreeAndNil(validacao);
-  end;
-
-  // Cria uma conexao
-  var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
-  var _mongo := _conexao.MongoConnection;
-  try
+procedure InserirDados(const _resfriamento: Integer; const _base, _colecao: String; const _dados: TJSONArray);
+  procedure Executar(const _base, _colecao: String; const _dados: TJSONArray);
+  begin
+    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _mongo := _conexao.MongoConnection;
     try
-      // Executa a inserção
-      var _inserir := _mongo[_banco][_colecao].Insert();
-      with _inserir.Values() do
+      // Varre array
+      for var I := 0 to _dados.Count - 1 do
       begin
-        for var I := 0 to _dados.Count - 1 do
+        var _docdados := _dados.Items[I] as TJSONObject;
+
+        // Cria a insert
+        var _inserir := _mongo[_base][_colecao].Insert();
+
+        // Varre object
+        for var J := 0 to _docdados.Count - 1 do
         begin
-          var _par := _dados.Pairs[I];
-          var _campo := _par.JsonString.Value;
-          var _valor := JSONValueToVariant(_par.JsonValue);
+          var _campo := _docdados.Pairs[J].JsonString.Value;
+          var _valor := _docdados.Pairs[J].JsonValue;
 
-          if Trim(_campo) = '' then
-            Exit(CriarRespostaErro('Nome do campo não pode ser vazio'));
-
-          Add(_campo, _valor);
+          // Adiciona cada valor
+          _inserir.Values().Add(_campo, JSONValueParaVariant(_valor));
         end;
 
-        &End.Exec;
+        // Executa
+        _inserir.Values().&End.Exec;
       end;
-
-      Result := CriarRespostaSucesso;
-
-    except
-      on E: Exception do
-        Result := CriarRespostaErro(E.Message);
+    finally
+      FreeAndNil(_conexao);
     end;
-  finally
-    FreeAndNil(_conexao);
   end;
-end;
-function EditarDados(const _banco, _colecao: String; const _filtros, _atualizacoes: TJSONObject): TJSONObject;
 begin
-  // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _filtros, _atualizacoes);
-  try
-    if not validacao.GetValue<Boolean>('sucesso') then
-      Exit(validacao.Clone as TJSONObject);
-  finally
-    FreeAndNil(validacao);
-  end;
-
-  // Cria uma conexao
-  var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
-  var _mongo := _conexao.MongoConnection;
-  try
+  if _resfriamento < 1 then
+    Executar(_base, _colecao, _dados)
+  else
+  begin
+    Fila.Enter;
     try
-      // Executa a busca
-      var _editar := _mongo[_banco][_colecao].Update();
-      with _editar.Match() do
-      begin
-        for var I := 0 to _filtros.Count - 1 do
-        begin
-          var _par := _filtros.Pairs[I];
-          var _campo := _par.JsonString.Value;
-          var _valor := JSONValueToVariant(_par.JsonValue);
-
-          if Trim(_campo) = '' then
-            Exit(CriarRespostaErro('Nome do campo de filtro não pode ser vazio'));
-
-          Add(_campo, _valor);
-        end;
-        &End;
-      end;
-
-      // Executa a edição
-      with _editar.Modify().&Set() do
-      begin
-        for var I := 0 to _atualizacoes.Count - 1 do
-        begin
-          var _par := _atualizacoes.Pairs[I];
-          var _campo := _par.JsonString.Value;
-          var _valor := JSONValueToVariant(_par.JsonValue);
-
-          if Trim(_campo) = '' then
-            Exit(CriarRespostaErro('Nome do campo de atualização não pode ser vazio'));
-
-          Field(_campo, _valor);
-        end;
-        &End;
-      end;
-
-      // Executa ação
-      _editar.Exec;
-
-      Result := CriarRespostaSucesso;
-
-    except
-      on E: Exception do
-        Result := CriarRespostaErro(E.Message);
+      Sleep(_resfriamento);
+      Executar(_base, _colecao, _dados);
+    finally
+      Fila.Leave;
     end;
-  finally
-    FreeAndNil(_conexao);
   end;
 end;
-function BuscarDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
-begin
-  // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _filtros);
-  try
-    if not validacao.GetValue<Boolean>('sucesso') then
-      Exit(validacao.Clone as TJSONObject);
-  finally
-    FreeAndNil(validacao);
-  end;
-
-  var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
-  var _mongo := _conexao.MongoConnection;
-  try
+procedure EditarDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String; const _dados: TJSONArray);
+  procedure Executar(const _base, _colecao, _filtros: String; const _dados: TJSONArray);
+  begin
+    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _mongo := _conexao.MongoConnection;
+    // Monta o documento de atualização
+    var _setDoc := TJSONObject.Create;
     try
-      // Adiciona os critérios de filtro
-      var _buscar := _mongo[_banco][_colecao].Find();
-      with _buscar.Match() do
+      // Varre o array
+      for var I := 0 to _dados.Count - 1 do
       begin
-        for var I := 0 to _filtros.Count - 1 do
-        begin
-          var _par := _filtros.Pairs[I];
-          var _campo := _par.JsonString.Value;
-          var _valor := JSONValueToVariant(_par.JsonValue);
-          Add(_campo, _valor);
-        end;
-        &End;
-      end;
+        var _docdados := _dados.Items[I] as TJSONObject;
 
-      // Processa os resultados
-      var _cursor: IMongoCursor;
-      var _resultadosArray := TJSONArray.Create;
-      var count := 0;
-
-      _cursor := _buscar;
-      while _cursor.Next do
-      begin
-        var _doc := TJSONObject.ParseJSONValue(_cursor.Doc.AsJSON) as TJSONObject;
-        if Assigned(_doc) then
+        // Varre object
+        for var J := 0 to _docdados.Count - 1 do
         begin
-          _resultadosArray.AddElement(_doc);
-          Inc(count);
+          var _campo := _docdados.Pairs[J].JsonString.Value;
+          var _valor := _docdados.Pairs[J].JsonValue.Clone as TJSONValue;
+
+          // Adiciona cada valor
+          _setDoc.AddPair(_campo, _valor);
         end;
       end;
 
-      Result := CriarRespostaSucesso(_resultadosArray, count);
-
-    except
-      on E: Exception do
-        Result := CriarRespostaErro(E.Message);
-    end;
-  finally
-    FreeAndNil(_conexao);
-  end;
-end;
-function ExcluirDados(const _banco, _colecao: String; const _filtros: TJSONObject): TJSONObject;
-begin
-  // Validação
-  var validacao := ValidarOperacao(_banco, _colecao, _filtros);
-  try
-    if not validacao.GetValue<Boolean>('sucesso') then
-      Exit(validacao.Clone as TJSONObject);
-  finally
-    FreeAndNil(validacao);
-  end;
-
-  // Cria uma conexao
-  var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
-  var _mongo := _conexao.MongoConnection;
-  try
-    try
-      // Executa a exclusão
-      var _excluir := _mongo[_banco][_colecao].Remove();
-
-      // Adiciona os critérios de filtro
-      var _match := _excluir.Match;
+      // Cria o doc
+      var _updateDoc := TJSONObject.Create;
       try
-        for var I := 0 to _filtros.Count - 1 do
-        begin
-          var _par := _filtros.Pairs[I];
-          var _campo := _par.JsonString.Value;
-          var _valor := JSONValueToVariant(_par.JsonValue);
+        _updateDoc.AddPair('$set', _setDoc);
 
-          if Trim(_campo) = '' then
-            Exit(CriarRespostaErro('Nome do campo de filtro não pode ser vazio'));
+        // Cria o update
+        var upd := _mongo[_base][_colecao].Update([TMongoCollection.TUpdateFlag.MultiUpdate]);
 
-          _match.Add(_campo, _valor);
-        end;
+        // Define filtro e modificador
+        upd.Match(_filtros);
+        upd.Modify(_updateDoc.ToJSON);
+
+        // Executa
+        upd.Exec;
       finally
-        _match.&End;
+        FreeAndNil(_updateDoc);
       end;
-
-      // Executa a ação
-      _excluir.Exec;
-
-      Result := CriarRespostaSucesso;
-
-    except
-      on E: Exception do
-        Result := CriarRespostaErro(E.Message);
+    finally
+      FreeAndNil(_conexao);
     end;
-  finally
-    FreeAndNil(_conexao);
+  end;
+begin
+  if _resfriamento < 1 then
+    Executar(_base, _colecao, _filtros, _dados)
+  else
+  begin
+    Fila.Enter;
+    try
+      Sleep(_resfriamento);
+      Executar(_base, _colecao, _filtros, _dados);
+    finally
+      Fila.Leave;
+    end;
   end;
 end;
+function BuscarDados(const _resfriamento: Integer; const _base, _colecao, _filtros, _projecoes: String): TJSONArray;
+  function Executar(const _base, _colecao, _filtros, _projecoes: String): TJSONArray;
+  begin
+    Result := TJSONArray.Create;
+
+    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _mongo := _conexao.MongoConnection;
+    try
+      // Cria a consulta
+      var _qry := _mongo[_base][_colecao].Find;
+
+      // Aplica o filtro
+      if _filtros <> '' then
+        _qry.Match(_filtros);
+
+      // Aplica a projeção
+      if _projecoes <> '' then
+        _qry.Project(_projecoes);
+
+      // Executa
+      var cursor := _qry.Open;
+
+      // Itera sobre os resultados
+      while cursor.Next do
+      begin
+        var _JsonStr := cursor.Doc.AsJSON;
+        var _json := TJSONObject.ParseJSONValue(_JsonStr, False) as TJSONObject;
+
+        if Assigned(_json) then
+          Result.AddElement(_json);
+      end;
+
+    finally
+      FreeAndNil(_conexao);
+    end;
+  end;
+begin
+  if _resfriamento < 1 then
+    Result := Executar(_base, _colecao, _filtros, _projecoes)
+  else
+  begin
+    Fila.Enter;
+    try
+      Sleep(_resfriamento);
+      Result := Executar(_base, _colecao, _filtros, _projecoes);
+    finally
+      Fila.Leave;
+    end;
+  end;
+end;
+procedure ExcluirDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String);
+  procedure Executar(const _base, _colecao, _filtros: String);
+  begin
+    var _conexao := TKAFSConexaoMongoDBAtlas.Create(nil);
+    var _mongo := _conexao.MongoConnection;
+    try
+      // Obtém o seletor de remoção já vinculado à coleção
+      var sel := _mongo[_base][_colecao].Remove([]);
+
+      // Aplica o filtro
+      sel.Match(_filtros);
+
+      // Executa a remoção
+      sel.Exec;
+    finally
+      FreeAndNil(_conexao);
+    end;
+  end;
+begin
+  if _resfriamento < 1 then
+    Executar(_base, _colecao, _filtros)
+  else
+  begin
+    Fila.Enter;
+    try
+      Sleep(_resfriamento);
+      Executar(_base, _colecao, _filtros);
+    finally
+      Fila.Leave;
+    end;
+  end;
+end;
+
+initialization
+  _fila := TCriticalSection.Create;
+finalization
+  FreeAndNil(_fila);
 
 end.
