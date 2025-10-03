@@ -1,189 +1,173 @@
-# 🧩 uKAFSMongoDB
+<div align="center">
+<img width="188" height="200" alt="image" src="https://github.com/user-attachments/assets/60d8a531-d1b0-4282-a91c-0d24467ffd8b" /></div><p>
 
-Biblioteca Delphi/FireMonkey de operações CRUD com MongoDB Atlas através de interface JSON simplificada.
+# <div align="center"><strong>uKAFSMongo</strong></div> 
+
+<div align="center">
+Biblioteca Delphi/FireMonkey que fornece operações de CRUD para MongoDB.<br> 
+Possui opção de cooldown para regular a frequência das operações, permanecendo dentro dos limites dos planos do MongoDB Atlas.
+</p>
+
+[![Delphi](https://img.shields.io/badge/Delphi-12.3+-B22222?logo=delphi)](https://www.embarcadero.com/products/delphi)
+[![MongoDB](https://img.shields.io/badge/MongoDB-Atlas-47A248?logo=mongodb)](https://www.mongodb.com/atlas)
+[![Multiplatform](https://img.shields.io/badge/Multiplatform-Windows/Linux-8250DF)]([https://www.embarcadero.com/products/delphi/cross-platform](https://docwiki.embarcadero.com/RADStudio/Athens/en/Developing_Multi-Device_Applications))
+[![License](https://img.shields.io/badge/License-GPLv3-blue)](LICENSE)
+</div><br>
 
 ## ⚠️ Dependências externas
 
 Esta biblioteca utiliza a seguinte unit externa que deve ser adicionada ao projeto:
+- 🧩 [TKAFSConexaoMongo](https://github.com/ViniciusdoAmaralReis/TKAFSConexaoMongo)
 
-- 🧩 [uKAFSConexaoMongoDBAtlas](https://github.com/ViniciusdoAmaralReis/uKAFSConexaoMongoDBAtlas)
+*Pode ser usado FDConnection manualmente configurado no lugar de [TKAFSConexaoMongo](https://github.com/ViniciusdoAmaralReis/TKAFSConexaoMongo), necessitando apenas de algumas modificações simples no código.
+<div></div><br><br>
 
-## 💡 Chamada - Inserir dados
+
+## ⚡ Chamada - Inserir dados
 ```pascal
-function InserirDados(const _banco, _colecao: String;
-  const _dados: TJSONObject): TJSONObject;
+procedure InserirDados(const _resfriamento: Integer; const _base, _colecao: String; const _dados: TJSONArray);
 ```
-
-- Exemplo de resposta com sucesso:
-```json
-{"sucesso": true}
-```
-
-- Exemplo de resposta com erro:
-```json
-{"sucesso": false, "erro": "Mensagem do erro aqui"}
-```
-
-- Exemplo de chamada:
+🏛️ Exemplo de chamada:
 ```pascal
-var _dados := TJSONObject.Create;
-var _resultado := TJSONObject.Create;
+var _dadosinserir := TJSONArray.Create;
+var _novousuario: TJSONObject;
 try
-  // Preparar dados para inserção
-  with _dados do
-  begin
-    AddPair('nome', TJSONString.Create('João'));
-    AddPair('email', TJSONString.Create('joao@email.com'));
-    AddPair('nivel', TJSONNumber.Create(1));
-  end;
+  // Primeiro documento
+  _novousuario := TJSONObject.Create;
+  _novousuario.AddPair('nome', 'João Silva');
+  _novousuario.AddPair('email', 'joao@empresa.com');
+  _novousuario.AddPair('data_nascimento', TJSONNumber.Create(831456000)); // Unix: 01/05/1996
+  _novousuario.AddPair('departamento', 'TI');
+  _novousuario.AddPair('salario', TJSONNumber.Create(4500.00));
+  _novousuario.AddPair('ativo', TJSONBool.Create(True));
+  _dadosinserir.AddElement(_novousuario);
 
-  // Executar inserção
-  _resultado := InserirDados('meu_banco', 'minha_coleção', _dados);
+  // Segundo documento
+  _novousuario := TJSONObject.Create;
+  _novousuario.AddPair('nome', 'Maria Santos');
+  _novousuario.AddPair('email', 'maria@empresa.com');
+  _novousuario.AddPair('data_nascimento', TJSONNumber.Create(713808000)); // Unix: 15/08/1992
+  _novousuario.AddPair('departamento', 'TI');
+  _novousuario.AddPair('salario', TJSONNumber.Create(5200.00));
+  _novousuario.AddPair('ativo', TJSONBool.Create(True));
+  _dadosinserir.AddElement(_novousuario);
 
-  // Verificar resultado
-  if not _resultado.GetValue<Boolean>('sucesso') then
-    raise Exception.Create(_resultado.GetValue<string>('erro'));
+  // Adicione quantos documentos forem necessários...
 
-  ShowMessage('Usuário inserido com sucesso!');
+  // Executa inserção
+  InserirDados(QUALQUER_VALOR_EM_MILISEGUNDOS, 'nome_base', 'nome_coleção', _dadosinserir);
+  // Resfriamento 0 = Sem fila nem cooldown, executa em tempo real
+  // Resfriamento QUALQUER_VALOR_EM_MILISEGUNDOS = Entra na fila e respeita-se o tempo de cooldown 
+
+  ShowMessage('Dados inseridos com sucesso!');
 finally
-  FreeAndNil(_resultado);
-  FreeAndNil(_dados);
+  FreeAndNil(_dadosinserir);
 end;
 ```
+<div></div><br><br>
 
-## 💡 Chamada - Editar dados
+
+## ⚡ Chamada - Editar dados
 ```pascal
-function EditarDados(const _banco, _colecao: String;
-  const _filtros, _atualizacoes: TJSONObject): TJSONObject;
+procedure EditarDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String; const _dados: TJSONArray);
 ```
-
-- Exemplo de resposta com sucesso:
-```json
-{"sucesso": true}
-```
-
-- Exemplo de resposta com erro:
-```json
-{"sucesso": false, "erro": "Mensagem do erro aqui"}
-```
-
-- Exemplo de chamada:
+🏛️ Exemplo de chamada:
 ```pascal
-var _filtros := TJSONObject.Create;
-var _atualizacoes := TJSONObject.Create;
-var _resultado := TJSONObject.Create;
+var _filtros := '{"$and": [{"departamento": "TI"}, {"data_nascimento": {"$lte": 788918400}}]}'; // Nascidos antes de 1995
+var _dadosatualizar := TJSONArray.Create;
+var _camposatualizar: TJSONObject;
 try
-  // Preparar filtros para edição
-  with _filtros do
-  begin
-    AddPair('email', TJSONString.Create('joao@email.com'));
-  end;
+  _camposAtualizar := TJSONObject.Create;
+  _camposAtualizar.AddPair('salario', TJSONNumber.Create(5500.00));
+  _camposAtualizar.AddPair('nivel', 'Sênior');
+  _camposAtualizar.AddPair('ultima_promocao', FormatDateTime('yyyy-mm-dd', Now));
+  _dadosatualizar.AddElement(_camposatualizar);
 
-  // Preparar dados para atualização
-  with _atualizacoes do
-  begin
-    AddPair('nivel', TJSONNumber.Create(2));
-    AddPair('ultima_atualizacao', TJSONString.Create(FormatDateTime('yyyy-mm-dd hh:nn:ss', Now)));
-  end;
+  // Adicione quantos documentos forem necessários...
 
-  // Executar edição
-  _resultado := EditarDados('meu_banco', 'minha_coleção', _filtros, _atualizacoes);
+  // Executa edição
+  EditarDados(QUALQUER_VALOR_EM_MILISEGUNDOS, 'nome_base', 'nome_coleção', _filtros, _dadosatualizar);
+  // Resfriamento 0 = Sem fila nem cooldown, executa em tempo real
+  // Resfriamento QUALQUER_VALOR_EM_MILISEGUNDOS = Entra na fila e respeita-se o tempo de cooldown 
 
-  // Verificar resultado
-  if not _resultado.GetValue<Boolean>('sucesso') then
-    raise Exception.Create(_resultado.GetValue<string>('erro'));
-
-  ShowMessage('Usuário atualizado com sucesso!');
+  ShowMessage('Dados editados com sucesso!');
 finally
-  FreeAndNil(_resultado);
-  FreeAndNil(_atualizacoes);
-  FreeAndNil(_filtros);
+  FreeAndNil(_dadosatualizar);
 end;
 ```
+<div></div><br><br>
 
-## 💡 Chamada - Buscar dados
+
+## ⚡ Chamada - Buscar dados
 ```pascal
-function BuscarDados(const _banco, _colecao: String;
-  const _filtros: TJSONObject): TJSONObject;
+function BuscarDados(const _resfriamento: Integer; const _base, _colecao, _filtros, _projecoes: String): TJSONArray;
 ```
-
-- Exemplo de resposta com sucesso e com resultados:
-```json
-{
-  "sucesso": true,
-  "quantidade": 2,
-  "resultados": [
-    {
-      "_id": "65a1b2c3d4e5f67890123456",
-      "nome": "João",
-      "email": "joao@email.com",
-      "nivel": 1
-    },
-    {
-      "_id": "65a1b2c3d4e5f67890123457",
-      "nome": "Maria",
-      "email": "maria@email.com",
-      "nivel": 2
-    }
-  ]
-}
-```
-
-- Exemplo de resposta com sucesso e sem resultado:
-```json
-{
-  "sucesso": true,
-  "quantidade": 0,
-  "resultados": []
-}
-```
-
-- Exemplo de resposta com erro:
-```json
-{"sucesso": false, "erro": "Mensagem do erro aqui"}
-```
-
-- Exemplo de chamada:
+🏛️ Exemplo de chamada:
 ```pascal
-var _filtros := TJSONObject.Create;
-var _resultado := TJSONObject.Create;
+var _resultados: TJSONArray;
+var _filtros := '{"departamento": "TI"}';
+var _projecoes := '{"nome": 1, "email": 1, "data_nascimento": 1, "salario": 1, "nivel": 1, "_id": 0}';
+var _dadosusuario: TJSONObject;
+var _dataNasc: TDateTime;
 try
-  // Preparar filtro para busca
-  _filtros := TJSONObject.Create;
-  with _filtros do
+  // Executa busca
+  var _resultados := BuscarDados(QUALQUER_VALOR_EM_MILISEGUNDOS, 'nome_base', 'nome_coleção', _filtros, _projecoes);
+  // Resfriamento 0 = Sem fila nem cooldown, executa em tempo real
+  // Resfriamento QUALQUER_VALOR_EM_MILISEGUNDOS = Entra na fila e respeita-se o tempo de cooldown
+    
+  // Varre o resultado
+  for var I := 0 to _resultados.Count - 1 do
   begin
-    AddPair('email', TJSONString.Create('joao@email.com'));
+    _dadosusuario := _resultados.Items[I] as TJSONObject;
+      
+    ShowMessage(Format('%s (%s) - Nascimento: %s - Salário: R$ %.2f - Nível: %s', 
+      [_dadosusuario.GetValue('nome').Value,
+       _dadosusuario.GetValue('email').Value,
+       FormatDateTime('dd/mm/yyyy', UnixToDateTime(_dadosusuario.GetValue('data_nascimento').Value.ToInteger)),
+       _dadosusuario.GetValue('salario').Value.ToDouble,
+       _dadosusuario.GetValue('nivel', 'Não definido')]));
   end;
-
-  // Executar busca
-  _resultado := BuscarDados('meu_banco', 'minha_coleção', _filtros);
-
-  // Verificar resultado
-  if not _resultado.GetValue<Boolean>('sucesso') then
-    raise Exception.Create(_resultado.GetValue<string>('erro'));
-
-  // Processar resultados
-  var _quantidade := _resultado.GetValue<Integer>('quantidade');
-  var _usuarios := _resultado.GetValue<TJSONArray>('resultados');
-
-  ShowMessage(Format('%d usuário(s) encontrado(s)', [_quantidade]));
+    
+  ShowMessage(Format('Encontrados %d funcionários de TI', [_resultados.Count]));
 finally
-  FreeAndNil(_resultado);
-  FreeAndNil(_filtros);
+  FreeAndNil(_resultados);
 end;
 ```
+📜 Exemplo de resposta:
+```json
+[
+  {
+    "nome": "João Silva",
+    "email": "joao@empresa.com",
+    "data_nascimento": 831456000,
+    "salario": 4500.00
+  },
+  {
+    "nome": "Maria Santos",
+    "email": "maria@empresa.com", 
+    "data_nascimento": 713808000,
+    "salario": 5500.00,
+    "nivel": "Sênior"
+  }
+]
+```
+<div></div><br><br>
 
-## 🏛️ Status de compatibilidade
+## ⚡ Método - Excluir dados
+```pascal
+procedure ExcluirDados(const _resfriamento: Integer; const _base, _colecao, _filtros: String);
+```
+🏛️ Exemplo de consumo no cliente:
+```pascal
+// Excluir usuários inativos OU com salário muito baixo
+var _filtros := '{"$or": [{"ativo": false}, {"salario": {"$lt": 2000}}]}';
+ExcluirDados(QUALQUER_VALOR_EM_MILISEGUNDOS,'nome_base', 'nome_coleção', _filtros);
+// Resfriamento 0 = Sem fila nem cooldown, executa em tempo real
+// Resfriamento QUALQUER_VALOR_EM_MILISEGUNDOS = Entra na fila e respeita-se o tempo de cooldown
+```
+*A exclusão é PERMANENTE. Sempre teste os filtros com BuscarDados antes de executar ExcluirDados!
+<div></div><br><br>
 
-| Sistema operacional | Status FireDAC MongoDB | Observações |
-|---------------------|------------------------|-------------|
-| **Windows** | ✅ **Totalmente Compatível** | Funcionamento completo com todos os recursos |
-| **Linux** | ❌ **Não Suportado** | Limitação técnica do driver FireDAC |
-
-| IDE | Versão mínima | Observações |
-|---------------------|------------------------|-------------|
-| **Delphi** | ✅ **10.4+** | Suporte a FireDAC e JSON nativo |
 
 ---
-
-**Nota**: Este componente é parte do ecossistema KAFS para integração com MongoDB. Requer configuração prévia do MongoDB Atlas através do componente `uKAFSConexaoMongoDBAtlas` e das credenciais apropriadas para funcionamento completo. Todas as operações retornam respostas em formato JSON padronizado para fácil integração com interfaces de usuário.
+**Nota**: Este componente é parte do ecossistema KAFS para integração com MongoDB. Requer configuração prévia do MongoDB Atlas através do componente [TKAFSConexaoMongo](https://github.com/ViniciusdoAmaralReis/TKAFSConexaoMongo) ou da configuração manual de um FDConnection e das credenciais apropriadas para funcionamento completo. Todos os filtros e projeções seguem o padrão do MongoDB. 
